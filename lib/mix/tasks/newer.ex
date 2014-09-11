@@ -1,3 +1,28 @@
+defmodule MixNewer.Macros do
+  # This one is available in flags.exs
+  defmacro flag(name, type) do
+    quote do
+      var!(flags) = Keyword.put(var!(flags), unquote(name), unquote(type))
+    end
+  end
+
+
+  ## The following macros are available in init.exs
+
+  defmacro param(name, value) do
+    quote do
+      var!(user_config) = Keyword.put(var!(user_config), unquote(name), unquote(value))
+    end
+  end
+
+  defmacro select(template, options) do
+    rename = Keyword.get(options, :rename, false)
+    quote do
+      var!(actions) = var!(actions) ++ [{:select, unquote(template), unquote(rename)}]
+    end
+  end
+end
+
 defmodule Mix.Tasks.Newer do
   use Mix.Task
 
@@ -18,29 +43,35 @@ defmodule Mix.Tasks.Newer do
   command line. For example, the default parameter `MODULE_NAME` and
   user-defined parameter `some_name` can be overriden as follows:
 
-      mix newer -t <template> --module-name Othername --some-name myname
+      mix newer -t <template> -o MODULE_NAME=Othername myapp
 
   """
 
   def run(args) do
     options = [
-      switches: [template: :string],
-      aliases: [t: :template],
+      strict: [template: :string, override: [:string, :keep]],
+      aliases: [t: :template, o: :override],
     ]
-    {name, template, overrides} = case OptionParser.parse(args, options) do
-      {opts, [name], []} ->
-        {name, Keyword.get(opts, :template, ":default"), Keyword.delete(opts, :template)}
-      {_, [_, arg | _], _} ->
-        Mix.raise "Extraneous argument: #{arg}"
-    end
+    {name, template, overrides, rest} =
+      case OptionParser.parse_head(args, options) do
+        {opts, [name|rest], []} ->
+          template = Keyword.get(opts, :template, "default")
+          overrides =
+            Keyword.delete(opts, :template)
+            |> Enum.map(fn {:override, val} -> val end)
+          {name, template, overrides, rest}
+        {_, _, [{opt, _}]} ->
+          Mix.raise "Undefined option #{opt}"
+        {_, [], _} ->
+          Mix.raise "Usage: mix newer -t <template> [overrides] <name> [template options]"
+      end
 
-    instantiate_template(name, fetch_template(template, name), parse_overrides(overrides))
+    instantiate_template(name, fetch_template(template, name), parse_overrides(overrides), rest)
   end
 
-  defmacro param(name, value) do
-    quote do
-      var!(user_config) = Keyword.put(var!(user_config), unquote(name), unquote(value))
-    end
+  defp fetch_template("default", _dest) do
+    IO.puts "Using default template."
+    System.halt 0
   end
 
   defp fetch_template(template, dest) do
@@ -70,19 +101,34 @@ defmodule Mix.Tasks.Newer do
   ]
 
   defp parse_overrides(overrides) do
-    Enum.map(overrides, fn {opt_name, value} ->
-      param_name =
-        opt_name |> Atom.to_string |> String.upcase |> String.to_atom
-
-      if not Enum.member?(@builtin_params, param_name) do
-        param_name = opt_name
-      end
+    Enum.map(overrides, fn str ->
+      [opt_name, value] = String.split(str, "=")
+      param_name = String.to_atom(opt_name)
       {param_name, value}
     end)
     |> Enum.into(%{})
   end
 
-  defp instantiate_template(name, path, overrides) do
+  defp instantiate_template(name, path, overrides, rest_args) do
+    File.cd!(path)
+
+    flag_code = File.read!("_template_config/flags.exs")
+    env = make_env_for(:flags)
+    {_, bindings} =
+      Code.string_to_quoted!(flag_code)
+      |> Code.eval_quoted([flags: []], env)
+
+    flags = Keyword.fetch!(bindings, :flags)
+
+    user_flags = case OptionParser.parse(rest_args, strict: flags) do
+      {opts, [], []} ->
+        opts
+      {_, [arg|_], _} ->
+        Mix.raise "Extraneous argument: #{arg}"
+      {_, _, [{opt, _}]} ->
+        Mix.raise "Undefine user option #{opt}"
+    end
+
     config = %{
       APP_NAME: Dict.get(overrides, :APP_NAME, name),
       MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Mix.Utils.camelize(name)),
@@ -90,22 +136,30 @@ defmodule Mix.Tasks.Newer do
       MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, Path.rootname(System.version)),
     }
 
-    File.cd!(path)
-
-    init_code = File.read!("init_template.exs")
-    env =
-      __ENV__
-      |> Map.update!(:functions, &[{__MODULE__, [param: 2]}|&1])
-      |> Map.put(:vars, [])
+    init_code = File.read!("_template_config/init.exs")
+    env = make_env_for(:init)
     {_, bindings} =
       Code.string_to_quoted!(init_code)
-      |> Code.eval_quoted([config: config, user_config: []], env)
+      |> Code.eval_quoted([config: config, user_config: [], actions: [], flags: user_flags], env)
     user_config =
       config
       |> Map.merge(Keyword.fetch!(bindings, :user_config) |> Enum.into(%{}))
       |> apply_overrides(overrides)
 
+    IO.puts "actions"
+    IO.inspect Keyword.fetch!(bindings, :actions)
+
     postprocess_file_hierarchy(user_config)
+  end
+
+  defp make_env_for(:flags) do
+    import MixNewer.Macros, only: [flag: 2], warn: false
+    __ENV__
+  end
+
+  defp make_env_for(:init) do
+    import MixNewer.Macros, only: [param: 2, select: 2], warn: false
+    __ENV__
   end
 
   defp apply_overrides(config, overrides) do
