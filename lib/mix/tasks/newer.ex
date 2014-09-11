@@ -1,28 +1,3 @@
-defmodule MixNewer.Macros do
-  # This one is available in flags.exs
-  defmacro flag(name, type) do
-    quote do
-      var!(flags) = Keyword.put(var!(flags), unquote(name), unquote(type))
-    end
-  end
-
-
-  ## The following macros are available in init.exs
-
-  defmacro param(name, value) do
-    quote do
-      var!(user_config) = Keyword.put(var!(user_config), unquote(name), unquote(value))
-    end
-  end
-
-  defmacro select(template, options) do
-    rename = Keyword.get(options, :rename, false)
-    quote do
-      var!(actions) = var!(actions) ++ [{:select, unquote(template), unquote(rename)}]
-    end
-  end
-end
-
 defmodule Mix.Tasks.Newer do
   use Mix.Task
 
@@ -93,13 +68,6 @@ defmodule Mix.Tasks.Newer do
     dest
   end
 
-  @builtin_params [
-      :APP_NAME,
-      :MODULE_NAME,
-      :MIX_VERSION,
-      :MIX_VERSION_SHORT,
-  ]
-
   defp parse_overrides(overrides) do
     Enum.map(overrides, fn str ->
       [opt_name, value] = String.split(str, "=")
@@ -109,75 +77,13 @@ defmodule Mix.Tasks.Newer do
     |> Enum.into(%{})
   end
 
-  defp eval_script(path, env_id, vars) do
-    code = File.read!(path) |> Code.string_to_quoted!
-    env = make_env_for(env_id)
-    {_, bindings} = Code.eval_quoted(code, vars, env)
-    bindings
-  end
-
   defp instantiate_template(name, path, overrides, rest_args) do
-    config = %{
-      APP_NAME: Dict.get(overrides, :APP_NAME, name),
-      MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Mix.Utils.camelize(name)),
-      MIX_VERSION: Dict.get(overrides, :MIX_VERSION, System.version),
-      MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, Path.rootname(System.version)),
-    }
+    config = MixNewer.Config.default_config(name, overrides)
 
     File.cd!(path)
-    {config, flags} = eval_defs(config, overrides, rest_args)
-    actions = eval_init(config, flags)
+    {config, flags} = MixNewer.Eval.eval_defs(config, overrides, rest_args)
+    actions = MixNewer.Eval.eval_init(config, flags)
     postprocess_file_hierarchy(config, actions)
-  end
-
-  defp eval_defs(config, overrides, args) do
-    vars = [config: config, user_config: [], flags: []]
-    bindings = eval_script("_template_config/defs.exs", :defs, vars)
-
-    flags = Keyword.fetch!(bindings, :flags)
-    user_flags = case OptionParser.parse(args, strict: flags) do
-      {opts, [], []} ->
-        opts
-      {_, [arg|_], _} ->
-        Mix.raise "Extraneous argument: #{arg}"
-      {_, _, [{opt, _}]} ->
-        Mix.raise "Undefine user option #{opt}"
-    end
-
-    user_config =
-      config
-      |> Map.merge(Keyword.fetch!(bindings, :user_config) |> Enum.into(%{}))
-      |> apply_overrides(overrides)
-
-    {user_config, user_flags}
-  end
-
-  defp eval_init(config, flags) do
-    vars = [config: config, flags: flags, actions: []]
-    eval_script("_template_config/init.exs", :init, vars)
-    |> Keyword.fetch!(:actions)
-  end
-
-  defp make_env_for(:defs) do
-    import MixNewer.Macros, only: [flag: 2, param: 2], warn: false
-    __ENV__
-  end
-
-  defp make_env_for(:init) do
-    import MixNewer.Macros, only: [select: 2], warn: false
-    __ENV__
-  end
-
-  defp apply_overrides(config, overrides) do
-    Enum.each(overrides, fn {k,_} ->
-      unless Enum.any?(config, &match?({^k,_}, &1)) do
-        Mix.raise "Undefined parameter #{k}"
-      end
-    end)
-
-    Enum.map(config, fn {k,v} ->
-      {k, Dict.get(overrides, k, v)}
-    end) |> Enum.into(%{})
   end
 
   defp postprocess_file_hierarchy(user_config, actions) do
