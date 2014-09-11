@@ -4,8 +4,17 @@ defmodule MixNewer.Eval do
   """
 
   def eval_defs(config, overrides, args) do
+    path = "_template_config/defs.exs"
+    if File.exists?(path) do
+      do_eval_defs(path, config, overrides, args)
+    else
+      {config, []}
+    end
+  end
+
+  defp do_eval_defs(path, config, overrides, args) do
     vars = [config: config, user_config: [], flags: []]
-    bindings = eval_script("_template_config/defs.exs", :defs, vars)
+    bindings = eval_script(path, :defs, vars)
 
     flags = Keyword.fetch!(bindings, :flags)
     user_flags = case OptionParser.parse(args, strict: flags) do
@@ -26,9 +35,14 @@ defmodule MixNewer.Eval do
   end
 
   def eval_init(config, flags) do
-    vars = [config: config, flags: flags, actions: []]
-    eval_script("_template_config/init.exs", :init, vars)
-    |> Keyword.fetch!(:actions)
+    path = "_template_config/init.exs"
+    if File.exists?(path) do
+      vars = [config: config, flags: flags, actions: []]
+      eval_script(path, :init, vars)
+      |> Keyword.fetch!(:actions)
+    else
+      []
+    end
   end
 
   defp eval_script(path, env_id, vars) do
