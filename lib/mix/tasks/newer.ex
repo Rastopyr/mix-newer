@@ -1,26 +1,28 @@
 defmodule Mix.Tasks.Newer do
   use Mix.Task
 
-  @shortdoc "Create a new mix project from template"
+  @shortdoc "Create a new Mix project from template"
+
+  @usage "mix newer -t <template> [overrides] <name> [template options]"
 
   @moduledoc """
   ## Usage
 
-      mix newer -t <template> [options] <name>
+      #{@usage}
 
-  The template can be one of:
+  The template can be a:
 
     * local directory
-    * URL to a repository
-    * URL to a zip or tar archive that will be fetched and unpacked
+    * URL to a Git repository
 
   Any parameters used or defined in the template can be overriden on the
-  command line. For example, the default parameter `MODULE_NAME` and
+  command line. For example, the default parameter `APP_NAME` and
   user-defined parameter `some_name` can be overriden as follows:
 
-      mix newer -t <template> -o MODULE_NAME=Othername myapp
+      mix newer -t <template> -o APP_NAME=Othername -o some_name='foo bar' myapp
 
   """
+  #* URL to a zip or tar archive that will be fetched and unpacked
 
   def run(args) do
     options = [
@@ -38,7 +40,7 @@ defmodule Mix.Tasks.Newer do
         {_, _, [{opt, _}]} ->
           Mix.raise "Undefined option #{opt}"
         {_, [], _} ->
-          Mix.raise "Usage: mix newer -t <template> [overrides] <name> [template options]"
+          Mix.raise "Usage: #{@usage}"
       end
 
     instantiate_template(name, fetch_template(template, name), parse_overrides(overrides), rest)
@@ -48,7 +50,8 @@ defmodule Mix.Tasks.Newer do
 
   defp fetch_template("default", _dest) do
     IO.puts "Using default template."
-    System.halt 0
+    IO.puts "(not implemented)"
+    System.halt 1
   end
 
   defp fetch_template(template, dest) do
