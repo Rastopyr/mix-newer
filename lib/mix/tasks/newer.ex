@@ -146,10 +146,7 @@ defmodule Mix.Tasks.Newer do
       |> Map.merge(Keyword.fetch!(bindings, :user_config) |> Enum.into(%{}))
       |> apply_overrides(overrides)
 
-    IO.puts "actions"
-    IO.inspect Keyword.fetch!(bindings, :actions)
-
-    postprocess_file_hierarchy(user_config)
+    postprocess_file_hierarchy(user_config, Keyword.fetch!(bindings, :actions))
   end
 
   defp make_env_for(:flags) do
@@ -168,8 +165,8 @@ defmodule Mix.Tasks.Newer do
     end) |> Enum.into(%{})
   end
 
-  defp postprocess_file_hierarchy(user_config) do
-    {files, _directories} = get_files_and_directories()
+  defp postprocess_file_hierarchy(user_config, actions) do
+    {files, template_files, _directories} = get_files_and_directories()
 
     new_files =
       files
@@ -177,16 +174,33 @@ defmodule Mix.Tasks.Newer do
       |> substitute_variables(user_config)
 
     substitute_variables_in_files(new_files, user_config)
+    rejected_templates = postprocess_template_files(template_files, user_config, actions)
 
-    cleanup()
+    cleanup(rejected_templates)
+  end
+
+  defp postprocess_template_files(paths, user_config, actions) do
+    Enum.reduce(actions, paths, &process_action(&1, &2, user_config))
+  end
+
+  defp process_action({:select, template, rename}, templates, config) do
+    new_path = substitute_variables_in_string(rename, config)
+    if path = Enum.find(templates, & &1 == template) do
+      :ok = :file.rename(path, new_path)
+      List.delete(templates, path)
+    else
+      templates
+    end
   end
 
   defp get_files_and_directories() do
-    Path.wildcard("**") |> Enum.partition(&File.regular?/1)
+    {files, dirs} = Path.wildcard("**") |> Enum.partition(&File.regular?/1)
+    template_files = Enum.filter(files, &String.ends_with?(&1, ".template"))
+    {files, template_files, dirs}
   end
 
   defp reject_auxilary_files(paths) do
-    paths -- ["init_template.exs"]
+    paths -- ["_template_config"]
   end
 
   defp substitute_variables(paths, config) do
@@ -214,8 +228,8 @@ defmodule Mix.Tasks.Newer do
     end)
   end
 
-  defp cleanup() do
-    [".git", "init_template.exs"]
+  defp cleanup(rejected_templates) do
+    [".git", "_template_config" | rejected_templates]
     |> Enum.each(&File.rm_rf!/1)
   end
 end
