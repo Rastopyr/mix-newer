@@ -42,6 +42,8 @@ defmodule Mix.Tasks.Newer do
       end
 
     instantiate_template(name, fetch_template(template, name), parse_overrides(overrides), rest)
+
+    Mix.shell.info [:green, "Successfully built ", :reset, name, :green, " from template."]
   end
 
   defp fetch_template("default", _dest) do
