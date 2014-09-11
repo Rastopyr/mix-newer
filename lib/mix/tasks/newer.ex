@@ -109,18 +109,33 @@ defmodule Mix.Tasks.Newer do
     |> Enum.into(%{})
   end
 
-  defp instantiate_template(name, path, overrides, rest_args) do
-    File.cd!(path)
+  defp eval_script(path, env_id, vars) do
+    code = File.read!(path) |> Code.string_to_quoted!
+    env = make_env_for(env_id)
+    {_, bindings} = Code.eval_quoted(code, vars, env)
+    bindings
+  end
 
-    flag_code = File.read!("_template_config/flags.exs")
-    env = make_env_for(:flags)
-    {_, bindings} =
-      Code.string_to_quoted!(flag_code)
-      |> Code.eval_quoted([flags: []], env)
+  defp instantiate_template(name, path, overrides, rest_args) do
+    config = %{
+      APP_NAME: Dict.get(overrides, :APP_NAME, name),
+      MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Mix.Utils.camelize(name)),
+      MIX_VERSION: Dict.get(overrides, :MIX_VERSION, System.version),
+      MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, Path.rootname(System.version)),
+    }
+
+    File.cd!(path)
+    {config, flags} = eval_defs(config, overrides, rest_args)
+    actions = eval_init(config, flags)
+    postprocess_file_hierarchy(config, actions)
+  end
+
+  defp eval_defs(config, overrides, args) do
+    vars = [config: config, user_config: [], flags: []]
+    bindings = eval_script("_template_config/defs.exs", :defs, vars)
 
     flags = Keyword.fetch!(bindings, :flags)
-
-    user_flags = case OptionParser.parse(rest_args, strict: flags) do
+    user_flags = case OptionParser.parse(args, strict: flags) do
       {opts, [], []} ->
         opts
       {_, [arg|_], _} ->
@@ -129,37 +144,37 @@ defmodule Mix.Tasks.Newer do
         Mix.raise "Undefine user option #{opt}"
     end
 
-    config = %{
-      APP_NAME: Dict.get(overrides, :APP_NAME, name),
-      MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Mix.Utils.camelize(name)),
-      MIX_VERSION: Dict.get(overrides, :MIX_VERSION, System.version),
-      MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, Path.rootname(System.version)),
-    }
-
-    init_code = File.read!("_template_config/init.exs")
-    env = make_env_for(:init)
-    {_, bindings} =
-      Code.string_to_quoted!(init_code)
-      |> Code.eval_quoted([config: config, user_config: [], actions: [], flags: user_flags], env)
     user_config =
       config
       |> Map.merge(Keyword.fetch!(bindings, :user_config) |> Enum.into(%{}))
       |> apply_overrides(overrides)
 
-    postprocess_file_hierarchy(user_config, Keyword.fetch!(bindings, :actions))
+    {user_config, user_flags}
   end
 
-  defp make_env_for(:flags) do
-    import MixNewer.Macros, only: [flag: 2], warn: false
+  defp eval_init(config, flags) do
+    vars = [config: config, flags: flags, actions: []]
+    eval_script("_template_config/init.exs", :init, vars)
+    |> Keyword.fetch!(:actions)
+  end
+
+  defp make_env_for(:defs) do
+    import MixNewer.Macros, only: [flag: 2, param: 2], warn: false
     __ENV__
   end
 
   defp make_env_for(:init) do
-    import MixNewer.Macros, only: [param: 2, select: 2], warn: false
+    import MixNewer.Macros, only: [select: 2], warn: false
     __ENV__
   end
 
   defp apply_overrides(config, overrides) do
+    Enum.each(overrides, fn {k,_} ->
+      unless Enum.any?(config, &match?({^k,_}, &1)) do
+        Mix.raise "Undefined parameter #{k}"
+      end
+    end)
+
     Enum.map(config, fn {k,v} ->
       {k, Dict.get(overrides, k, v)}
     end) |> Enum.into(%{})
@@ -168,14 +183,12 @@ defmodule Mix.Tasks.Newer do
   defp postprocess_file_hierarchy(user_config, actions) do
     {files, template_files, _directories} = get_files_and_directories()
 
-    new_files =
-      files
-      |> reject_auxilary_files
-      |> substitute_variables(user_config)
+    files
+    |> reject_auxilary_files
+    |> substitute_variables(user_config)
+    |> substitute_variables_in_files(user_config)
 
-    substitute_variables_in_files(new_files, user_config)
     rejected_templates = postprocess_template_files(template_files, user_config, actions)
-
     cleanup(rejected_templates)
   end
 
@@ -183,24 +196,25 @@ defmodule Mix.Tasks.Newer do
     Enum.reduce(actions, paths, &process_action(&1, &2, user_config))
   end
 
-  defp process_action({:select, template, rename}, templates, config) do
-    new_path = substitute_variables_in_string(rename, config)
-    if path = Enum.find(templates, & &1 == template) do
+  defp process_action({:select, template, rename}, paths, config) do
+    new_name = substitute_variables_in_string(rename, config)
+    if path = Enum.find(paths, &(&1 == template<>"._template")) do
+      new_path = Path.join([Path.dirname(path), new_name])
       :ok = :file.rename(path, new_path)
-      List.delete(templates, path)
+      List.delete(paths, path)
     else
-      templates
+      Mix.raise "Template file '#{template<>"._template"}' not found"
     end
   end
 
   defp get_files_and_directories() do
     {files, dirs} = Path.wildcard("**") |> Enum.partition(&File.regular?/1)
-    template_files = Enum.filter(files, &String.ends_with?(&1, ".template"))
+    template_files = Enum.filter(files, &String.ends_with?(&1, "._template"))
     {files, template_files, dirs}
   end
 
   defp reject_auxilary_files(paths) do
-    paths -- ["_template_config"]
+    Enum.reject(paths, &String.starts_with?(&1, "_template_config"))
   end
 
   defp substitute_variables(paths, config) do
