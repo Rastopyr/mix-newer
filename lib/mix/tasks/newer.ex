@@ -57,7 +57,7 @@ defmodule Mix.Tasks.Newer do
   defp fetch_template(template, dest) do
     cond do
       String.ends_with?(template, ".git") or File.dir?(Path.join([template, ".git"])) ->
-        Mix.SCM.Git.checkout(git: template, dest: dest)
+        Mix.SCM.Git.checkout(git: template, checkout: dest)
 
       String.starts_with?(template, "http") ->
         id = :crypto.rand_bytes(4) |> Base.encode16
