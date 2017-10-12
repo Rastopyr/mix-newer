@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Newer do
   use Mix.Task
 
+  require Logger
+
   @shortdoc "Create a new Mix project from template"
 
   @usage "mix newer -t <template> [overrides] <name> [template options]"
@@ -92,7 +94,10 @@ defmodule Mix.Tasks.Newer do
   end
 
   defp postprocess_file_hierarchy(user_config, actions) do
-    {files, template_files, _directories} = get_files_and_directories()
+    {files, template_files, directories} = get_files_and_directories()
+
+    directories
+    |> substitute_variables(user_config)
 
     files
     |> reject_auxilary_files
@@ -133,7 +138,10 @@ defmodule Mix.Tasks.Newer do
     |> Enum.map(fn path ->
       new_path = substitute_variables_in_string(path, config)
       if path != new_path do
-        :ok = :file.rename(path, new_path)
+        case :file.rename(path, new_path) do
+          :ok -> :ok
+          { :error, errCode } -> { :error, errCode }
+        end
       end
       new_path
     end)

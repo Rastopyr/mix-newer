@@ -6,7 +6,7 @@ defmodule MixNewer.Config do
   def default_config(name, overrides) do
     %{
       APP_NAME: Dict.get(overrides, :APP_NAME, name),
-      MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Mix.Utils.camelize(name)),
+      MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Macro.camelize(name)),
       MIX_VERSION: Dict.get(overrides, :MIX_VERSION, System.version),
       MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, Path.rootname(System.version)),
     }
