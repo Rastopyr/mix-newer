@@ -12,7 +12,7 @@ prepared file hierarchy and create scaffolding for a new project from it.
 Download the latest archive from the Releases page
 
 ```sh
-$ mix archive.install https://github.com/alco/mix-newer/releases/download/alpha1/mix_newer-0.1.0.ez
+$ mix archive.install https://github.com/Rastopyr/mix-newer/releases/download/alpha1/mix_newer-0.2.0.ez
 ```
 
 or build from source as follows:
