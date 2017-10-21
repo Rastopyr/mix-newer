@@ -1,5 +1,5 @@
 defmodule MixNewer.Macros do
-  @moduldoc """
+  @moduledoc """
   This module defines macros for use in users' template scripts.
   """
 
@@ -13,7 +13,7 @@ defmodule MixNewer.Macros do
   # Should be available in defs.exs
   defmacro param(name, value) do
     quote do
-      var!(user_config) = Keyword.put(var!(user_config), unquote(name), unquote(value))
+      Keyword.put(var!(user_config), unquote(name), unquote(value))
     end
   end
 
@@ -21,7 +21,9 @@ defmodule MixNewer.Macros do
   defmacro select(template, options) do
     rename = Keyword.get(options, :rename, false)
     quote do
-      var!(actions) = var!(actions) ++ [{:select, unquote(template), unquote(rename)}]
+      var!(actions) = var!(actions) ++ [
+        {:select, unquote(template), unquote(rename)}
+      ]
     end
   end
 end

@@ -4,11 +4,13 @@ defmodule MixNewer.Config do
   """
 
   def default_config(name, overrides) do
+    root = Path.rootname(System.version)
+
     %{
       APP_NAME: Dict.get(overrides, :APP_NAME, name),
       MODULE_NAME: Dict.get(overrides, :MODULE_NAME, Macro.camelize(name)),
       MIX_VERSION: Dict.get(overrides, :MIX_VERSION, System.version),
-      MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, Path.rootname(System.version)),
+      MIX_VERSION_SHORT: Dict.get(overrides, :MIX_VERSION_SHORT, root),
     }
   end
 
@@ -19,8 +21,8 @@ defmodule MixNewer.Config do
       end
     end)
 
-    Enum.map(config, fn {k,v} ->
+    Enum.into Enum.map(config, fn {k,v} ->
       {k, Dict.get(overrides, k, v)}
-    end) |> Enum.into(%{})
+    end), (%{})
   end
 end

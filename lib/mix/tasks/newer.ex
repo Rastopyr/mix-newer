@@ -24,30 +24,38 @@ defmodule Mix.Tasks.Newer do
       mix newer -t <template> -o APP_NAME=Othername -o some_name='foo bar' myapp
 
   """
-  #* URL to a zip or tar archive that will be fetched and unpacked
 
   def run(args) do
     options = [
       strict: [template: :string, override: [:string, :keep]],
       aliases: [t: :template, o: :override],
     ]
-    {name, template, overrides, rest} =
-      case OptionParser.parse_head(args, options) do
-        {opts, [name|rest], []} ->
-          template = Keyword.get(opts, :template, "default")
-          overrides =
-            Keyword.delete(opts, :template)
-            |> Enum.map(fn {:override, val} -> val end)
-          {name, template, overrides, rest}
-        {_, _, [{opt, _}]} ->
-          Mix.raise "Undefined option #{opt}"
-        {_, [], _} ->
-          Mix.raise "Usage: #{@usage}"
-      end
 
-    instantiate_template(name, fetch_template(template, name), parse_overrides(overrides), rest)
+    heads = OptionParser.parse_head(args, options)
 
-    Mix.shell.info [:green, "Successfully built ", :reset, name, :green, " from template."]
+    {name, template, overrides, rest} = case heads do
+      {opts, [name | rest], []} ->
+        template = Keyword.get(opts, :template, "default")
+        kwds = Keyword.delete(opts, :template)
+        overrides = Enum.map(kwds, fn {:override, val} -> val end)
+
+        {name, template, overrides, rest}
+      {_, _, [{opt, _}]} ->
+        Mix.raise "Undefined option #{opt}"
+      {_, [], _} ->
+        Mix.raise "Usage: #{@usage}"
+    end
+
+    fetched_template = fetch_template(template, name)
+    parsed_overrides = parse_overrides(overrides)
+
+    instantiate_template(name, fetched_template, parsed_overrides, rest)
+
+    Mix.shell.info [
+      :green, "Successfully built ",
+      :reset, name,
+      :green, " from template."
+    ]
   end
 
   defp fetch_template("default", _dest) do
@@ -57,16 +65,18 @@ defmodule Mix.Tasks.Newer do
   end
 
   defp fetch_template(template, dest) do
+    is_git = String.ends_with?(template, ".git") or
+      File.dir?(Path.join([template, ".git"]))
+
     cond do
-      String.ends_with?(template, ".git") or File.dir?(Path.join([template, ".git"])) ->
+      is_git ->
         Mix.SCM.Git.checkout(git: template, checkout: dest)
 
       String.starts_with?(template, "http") ->
-        id = :crypto.rand_bytes(4) |> Base.encode16
+        id = Base.encode16 :crypto.strong_rand_bytes(4)
         unique_name = "mix_newer_template_#{id}"
         tmp_path = Path.join(System.tmp_dir!, unique_name)
 
-        # FIXME
         :httpc.download_file(template, tmp_path)
 
       File.dir?(template) ->
@@ -76,12 +86,14 @@ defmodule Mix.Tasks.Newer do
   end
 
   defp parse_overrides(overrides) do
-    Enum.map(overrides, fn str ->
+    overrides = Enum.map(overrides, fn str ->
       [opt_name, value] = String.split(str, "=")
       param_name = String.to_atom(opt_name)
       {param_name, value}
     end)
-    |> Enum.into(%{})
+
+
+    Enum.into(overrides, %{})
   end
 
   defp instantiate_template(name, path, overrides, rest_args) do
@@ -104,8 +116,7 @@ defmodule Mix.Tasks.Newer do
     |> substitute_variables(user_config)
     |> substitute_variables_in_files(user_config)
 
-    rejected_templates = postprocess_template_files(template_files, user_config, actions)
-    cleanup(rejected_templates)
+    cleanup postprocess_template_files(template_files, user_config, actions)
   end
 
   defp postprocess_template_files(paths, user_config, actions) do
@@ -114,7 +125,7 @@ defmodule Mix.Tasks.Newer do
 
   defp process_action({:select, template, rename}, paths, config) do
     new_name = substitute_variables_in_string(rename, config)
-    if path = Enum.find(paths, &(&1 == template<>"._template")) do
+    if path = Enum.find(paths, &(&1 == template <> "._template")) do
       new_path = Path.join([Path.dirname(path), new_name])
       :ok = :file.rename(path, new_path)
       List.delete(paths, path)
@@ -123,8 +134,8 @@ defmodule Mix.Tasks.Newer do
     end
   end
 
-  defp get_files_and_directories() do
-    {files, dirs} = Path.wildcard("**") |> Enum.partition(&File.regular?/1)
+  defp get_files_and_directories do
+    {files, dirs} = Enum.partition(Path.wildcard("**"), &File.regular?/1)
     template_files = Enum.filter(files, &String.ends_with?(&1, "._template"))
     {files, template_files, dirs}
   end
@@ -156,7 +167,10 @@ defmodule Mix.Tasks.Newer do
   defp substitute_variables_in_files(files, config) do
     files
     |> Enum.each(fn path ->
-      new_contents = path |> File.read! |> substitute_variables_in_string(config)
+      new_contents = path
+      |> File.read!
+      |> substitute_variables_in_string(config)
+
       File.write!(path, new_contents)
     end)
   end

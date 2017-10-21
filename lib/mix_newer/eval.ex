@@ -20,16 +20,19 @@ defmodule MixNewer.Eval do
     user_flags = case OptionParser.parse(args, strict: flags) do
       {opts, [], []} ->
         opts
-      {_, [arg|_], _} ->
+      {_, [arg | _], _} ->
         Mix.raise "Extraneous argument: #{arg}"
       {_, _, [{opt, _}]} ->
         Mix.raise "Undefine user option #{opt}"
     end
 
-    user_config =
-      config
-      |> Map.merge(Keyword.fetch!(bindings, :user_config) |> Enum.into(%{}))
-      |> MixNewer.Config.apply_overrides(overrides)
+    bindings_config = bindings
+    |> Keyword.fetch!(:user_config)
+    |> Enum.into(%{})
+
+    user_config = config
+    |> Map.merge(bindings_config)
+    |> MixNewer.Config.apply_overrides(overrides)
 
     {user_config, user_flags}
   end
@@ -38,7 +41,9 @@ defmodule MixNewer.Eval do
     path = "_template_config/init.exs"
     if File.exists?(path) do
       vars = [config: config, flags: flags, actions: []]
-      eval_script(path, :init, vars)
+
+      path
+      |> eval_script(:init, vars)
       |> Keyword.fetch!(:actions)
     else
       []
@@ -46,7 +51,9 @@ defmodule MixNewer.Eval do
   end
 
   defp eval_script(path, env_id, vars) do
-    code = File.read!(path) |> Code.string_to_quoted!
+    code = path
+    |> File.read!
+    |> Code.string_to_quoted!
     env = make_env_for(env_id)
     {_, bindings} = Code.eval_quoted(code, vars, env)
     bindings
