@@ -119,7 +119,7 @@ them can be picked in `init.exs` as follows:
 
 ```elixir
 # Decide which file to pick based on the value of our a custom flag
-if flag[:custom] == "second" do
+if flags[:custom] == "second" do
   select "lib/option_2.ex", rename: "{{APP_NAME}}.ex"
 else
   select "lib/option_1.ex", rename: "{{APP_NAME}}.ex"
@@ -129,6 +129,7 @@ end
 The picked file will be kept under the `lib/` directory with a new name, and
 the other file will be removed before the template instantiation completes.
 
+If `rename` option isn't set, default name will be kept.
 
 ### Examples
 

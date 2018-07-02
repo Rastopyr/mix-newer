@@ -65,7 +65,7 @@ defmodule MixNewer.Eval do
   end
 
   defp make_env_for(:init) do
-    import MixNewer.Macros, only: [select: 2], warn: false
+    import MixNewer.Macros, only: [select: 1, select: 2], warn: false
     __ENV__
   end
 end

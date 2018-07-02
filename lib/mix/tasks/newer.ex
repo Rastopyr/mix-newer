@@ -106,7 +106,7 @@ defmodule Mix.Tasks.Newer do
   end
 
   defp postprocess_file_hierarchy(user_config, actions) do
-    {files, template_files, directories} = get_files_and_directories()
+    {files, template_files, directories} = get_files_and_directories(user_config)
 
     directories
     |> substitute_variables(user_config)
@@ -124,9 +124,18 @@ defmodule Mix.Tasks.Newer do
   end
 
   defp process_action({:select, template, rename}, paths, config) do
-    new_name = substitute_variables_in_string(rename, config)
+    template = substitute_variables_in_string(template, config)
     if path = Enum.find(paths, &(&1 == template <> "._template")) do
-      new_path = Path.join([Path.dirname(path), new_name])
+      new_path =
+        if rename do
+          path
+          |> Path.dirname()
+          |> Path.join(substitute_variables_in_string(rename, config))
+          |> substitute_variables_in_string(config)
+        else
+          template
+        end
+
       :ok = :file.rename(path, new_path)
       List.delete(paths, path)
     else
@@ -134,9 +143,12 @@ defmodule Mix.Tasks.Newer do
     end
   end
 
-  defp get_files_and_directories do
+  defp get_files_and_directories(config) do
     {files, dirs} = Enum.partition(Path.wildcard("**"), &File.regular?/1)
-    template_files = Enum.filter(files, &String.ends_with?(&1, "._template"))
+    template_files =
+      files
+      |> Enum.filter(&String.ends_with?(&1, "._template"))
+      |> Enum.map(&substitute_variables_in_string(&1, config))
     {files, template_files, dirs}
   end
 

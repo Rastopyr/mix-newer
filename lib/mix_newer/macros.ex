@@ -18,7 +18,7 @@ defmodule MixNewer.Macros do
   end
 
   # Should be available in init.exs
-  defmacro select(template, options) do
+  defmacro select(template, options \\ []) do
     rename = Keyword.get(options, :rename, false)
     quote do
       var!(actions) = var!(actions) ++ [
